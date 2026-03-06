@@ -1,30 +1,31 @@
 import { Request, Response } from 'express';
 import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
-import { fileUploader } from '../../utils/fileUploader';
 import { AiStencilService } from './aiStencil.service';
 
 const createStencil = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) {
-    throw new Error('Image file is required');
+    return res.status(400).json({ success: false, message: 'Image file is required' });
   }
-  const uploadedImage = await fileUploader.uploadToCloudinary(req.file);
 
-  const stencilData = {
-    user: req.user.id,
-    originalImage: {
-      url: uploadedImage.url,
-      publicId: uploadedImage.public_id,
+  // Pass user ID from auth middleware and style from body
+  const result = await AiStencilService.createStencil(
+    {
+      user: req.user?.id,
+      style: req.body.style || 'Outline',
+      ...req.body,
     },
-    ...req.body,
-  };
+    req.file,
+  );
 
-  const result = await AiStencilService.createStencil(stencilData);
+  // If the service caught an error and set status to FAILED
+  const statusCode = result.status === 'FAILED' ? 400 : 201;
 
   sendResponse(res, {
-    statusCode: 201,
-    success: true,
-    message: 'Stencil job created successfully',
+    statusCode,
+    success: result.status !== 'FAILED',
+    message:
+      result.status === 'FAILED' ? 'Stencil generation failed' : 'Stencil generated successfully',
     data: result,
   });
 });

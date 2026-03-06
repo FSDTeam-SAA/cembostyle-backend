@@ -29,9 +29,7 @@ const upload = multer({
     if (allowedExtensions.test(ext) && isMimetypeValid) {
       cb(null, true);
     } else {
-      cb(
-        new AppError(400, 'Invalid file type. Images, videos, and CSVs only.'),
-      );
+      cb(new AppError(400, 'Invalid file type. Images, videos, and CSVs only.'));
     }
   },
 });
@@ -45,19 +43,11 @@ const uploadToCloudinary = (
 
     // Determine Resource Type
     const isVideo = file.mimetype.startsWith('video/');
-    const isCSV =
-      file.originalname.endsWith('.csv') || file.mimetype === 'text/csv';
-    const resourceType: 'image' | 'video' | 'raw' = isVideo
-      ? 'video'
-      : isCSV
-        ? 'raw'
-        : 'image';
+    const isCSV = file.originalname.endsWith('.csv') || file.mimetype === 'text/csv';
+    const resourceType: 'image' | 'video' | 'raw' = isVideo ? 'video' : isCSV ? 'raw' : 'image';
 
     // Sanitize Filename
-    const fileNameOnly = path
-      .parse(file.originalname)
-      .name.replace(/\s+/g, '_')
-      .toLowerCase();
+    const fileNameOnly = path.parse(file.originalname).name.replace(/\s+/g, '_').toLowerCase();
     const safeName = `${Date.now()}-${fileNameOnly}`;
 
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -80,9 +70,7 @@ const uploadToCloudinary = (
       },
       (error, result) => {
         if (error || !result) {
-          return reject(
-            new AppError(500, error?.message || 'Cloudinary upload failed'),
-          );
+          return reject(new AppError(500, error?.message || 'Cloudinary upload failed'));
         }
         resolve({
           url: result.secure_url,
@@ -96,7 +84,34 @@ const uploadToCloudinary = (
   });
 };
 
+const uploadBase64ToCloudinary = (
+  base64String: string,
+): Promise<{ url: string; public_id: string }> => {
+  return new Promise((resolve, reject) => {
+    // Gemini gives the string; Cloudinary needs the Data URI format
+    const dataUri = `data:image/jpeg;base64,${base64String}`;
+
+    cloudinary.uploader.upload(
+      dataUri,
+      {
+        folder: 'Stencils',
+        resource_type: 'image',
+      },
+      (error, result) => {
+        if (error || !result) {
+          return reject(new AppError(500, error?.message || 'Cloudinary upload failed'));
+        }
+        resolve({
+          url: result.secure_url,
+          public_id: result.public_id,
+        });
+      },
+    );
+  });
+};
+
 export const fileUploader = {
   upload,
   uploadToCloudinary,
+  uploadBase64ToCloudinary,
 };

@@ -13,13 +13,7 @@ const aiStencilSchema = new Schema<IAiStencil>(
       publicId: { type: String },
     },
     style: { type: String, required: true },
-    // adjustments: {
-    //   brightness: { type: Number },
-    //   contrast: { type: Number },
-    // },
     status: { type: String, enum: ['COMPLETED', 'FAILED'] },
-    // availableThemes: { type: [String] },
-    // styleLevel: { type: [String] },
   },
   { timestamps: true },
 );
