@@ -21,7 +21,9 @@ const GEMINI_IMAGE_MODELS = [
   'gemini-2.5-flash-image',
   'gemini-3.1-flash-image-preview',
   'gemini-2.0-flash-exp-image-generation',
-].filter((model, index, models): model is string => Boolean(model) && models.indexOf(model) === index);
+].filter(
+  (model, index, models): model is string => Boolean(model) && models.indexOf(model) === index,
+);
 
 const getGenerativeAIClient = () => {
   if (!config.gemini.api_key) {
@@ -34,7 +36,12 @@ const getGenerativeAIClient = () => {
 const withTimeout = <T>(promise: Promise<T>, timeoutMs: number) => {
   const timeoutPromise = new Promise<T>((_, reject) => {
     setTimeout(
-      () => reject(Object.assign(new Error(`AI Timeout after ${Math.ceil(timeoutMs / 1000)}s`), { status: 504 })),
+      () =>
+        reject(
+          Object.assign(new Error(`AI Timeout after ${Math.ceil(timeoutMs / 1000)}s`), {
+            status: 504,
+          }),
+        ),
       timeoutMs,
     );
   });
@@ -89,7 +96,10 @@ const classifyAiError = (
     };
   }
 
-  if (status === 404 || /not found for api version|is not supported for generatecontent/i.test(message)) {
+  if (
+    status === 404 ||
+    /not found for api version|is not supported for generatecontent/i.test(message)
+  ) {
     return {
       errorCode: 'AI_MODEL_UNAVAILABLE',
       errorMessage: `No configured Gemini image model is available for this API key. Tried: ${attemptedModels.join(', ')}.`,

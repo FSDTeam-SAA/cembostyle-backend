@@ -15,11 +15,7 @@ const getProfile = async (userId: string) => {
   return result;
 };
 
-const updateProfile = async (
-  userId: string,
-  payload: Partial<IUser>,
-  file?: any,
-) => {
+const updateProfile = async (userId: string, payload: Partial<IUser>, file?: any) => {
   const isUserExist = await User.findById(userId);
   if (!isUserExist) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found');
@@ -48,7 +44,7 @@ const updateProfile = async (
 const getAllUsers = async (query: Record<string, unknown>) => {
   const userSearchableFields = ['name', 'email', 'role'];
 
-  const userQuery = new QueryBuilder(User.find(), query)
+  const userQuery = new QueryBuilder(User.find({ role: 'USER' }), query)
     .search(userSearchableFields)
     .filter()
     .sort()
