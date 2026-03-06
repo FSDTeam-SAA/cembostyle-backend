@@ -14,6 +14,8 @@ const aiStencilSchema = new Schema<IAiStencil>(
     },
     style: { type: String, required: true },
     status: { type: String, enum: ['COMPLETED', 'FAILED'] },
+    errorCode: { type: String },
+    errorMessage: { type: String },
   },
   { timestamps: true },
 );

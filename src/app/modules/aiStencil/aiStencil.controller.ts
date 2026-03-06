@@ -2,6 +2,22 @@ import { Request, Response } from 'express';
 import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { AiStencilService } from './aiStencil.service';
+import { TStencilErrorCode } from './aiStencil.interface';
+
+const getFailureStatusCode = (errorCode?: TStencilErrorCode) => {
+  switch (errorCode) {
+    case 'AI_TIMEOUT':
+      return 504;
+    case 'AI_QUOTA_EXCEEDED':
+      return 429;
+    case 'AI_MODEL_UNAVAILABLE':
+      return 503;
+    case 'AI_BAD_RESPONSE':
+    case 'AI_PROCESSING_FAILED':
+    default:
+      return 502;
+  }
+};
 
 const createStencil = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) {
@@ -18,14 +34,16 @@ const createStencil = catchAsync(async (req: Request, res: Response) => {
     req.file,
   );
 
-  // If the service caught an error and set status to FAILED
-  const statusCode = result.status === 'FAILED' ? 400 : 201;
+  const statusCode = result.status === 'FAILED' ? getFailureStatusCode(result.errorCode) : 201;
+  const message =
+    result.status === 'FAILED'
+      ? result.errorMessage || 'Stencil generation failed'
+      : 'Stencil generated successfully';
 
   sendResponse(res, {
     statusCode,
     success: result.status !== 'FAILED',
-    message:
-      result.status === 'FAILED' ? 'Stencil generation failed' : 'Stencil generated successfully',
+    message,
     data: result,
   });
 });

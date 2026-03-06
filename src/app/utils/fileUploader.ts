@@ -86,10 +86,11 @@ const uploadToCloudinary = (
 
 const uploadBase64ToCloudinary = (
   base64String: string,
+  mimeType = 'image/jpeg',
 ): Promise<{ url: string; public_id: string }> => {
   return new Promise((resolve, reject) => {
-    // Gemini gives the string; Cloudinary needs the Data URI format
-    const dataUri = `data:image/jpeg;base64,${base64String}`;
+    const safeMimeType = mimeType.startsWith('image/') ? mimeType : 'image/jpeg';
+    const dataUri = `data:${safeMimeType};base64,${base64String}`;
 
     cloudinary.uploader.upload(
       dataUri,

@@ -49,5 +49,7 @@ export default {
   },
   gemini: {
     api_key: process.env.GEMINI_API_KEY,
+    stencil_model: process.env.GEMINI_STENCIL_MODEL,
+    timeout_ms: process.env.GEMINI_TIMEOUT_MS,
   },
 };
