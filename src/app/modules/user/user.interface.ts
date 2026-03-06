@@ -13,4 +13,10 @@ export interface IUser {
   };
   otp?: string | undefined;
   otpExpires?: Date | undefined;
+
+  // Stripe Subscription Fields
+  isPremium: boolean;
+  stripeCustomerId?: string;
+  subscriptionId?: string;
+  subscriptionStatus?: 'active' | 'canceled' | 'past_due' | 'incomplete';
 }

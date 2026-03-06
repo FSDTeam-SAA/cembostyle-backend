@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { AuthRoutes } from '../modules/auth/auth.route';
 import { UserRoutes } from '../modules/user/user.route';
 import { PreGalleryRoutes } from '../modules/preGallery/preGallery.route';
-import path from 'node:path';
 import { AiStencilRoutes } from '../modules/aiStencil/aiStencil.route';
+import { StripeRoutes } from '../modules/stripe/stripe.route';
 
 const router = Router();
 
@@ -23,6 +23,10 @@ const moduleRoutes = [
   {
     path: '/aistencil',
     route: AiStencilRoutes,
+  },
+  {
+    path: '/stripe',
+    route: StripeRoutes,
   },
 ];
 

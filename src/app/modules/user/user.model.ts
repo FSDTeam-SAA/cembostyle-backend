@@ -20,6 +20,15 @@ const userSchema = new Schema<IUser>(
     },
     otp: { type: String, default: null, select: 0 },
     otpExpires: { type: Date, default: null, select: 0 },
+
+    // Stripe Subscription Fields
+    isPremium: { type: Boolean, default: false },
+    stripeCustomerId: { type: String },
+    subscriptionId: { type: String },
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'canceled', 'past_due', 'incomplete'],
+    },
   },
   {
     timestamps: true,
@@ -29,10 +38,7 @@ const userSchema = new Schema<IUser>(
 // Password Hashing Middleware
 userSchema.pre('save', async function (this: IUser & Document) {
   if (this.isModified('password') && this.password) {
-    this.password = await bcrypt.hash(
-      this.password,
-      Number(config.bcrypt_salt_rounds),
-    );
+    this.password = await bcrypt.hash(this.password, Number(config.bcrypt_salt_rounds));
   }
 });
 
