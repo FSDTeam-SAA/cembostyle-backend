@@ -32,58 +32,8 @@ const updateProfile = catchAsync(async (req, res) => {
   });
 });
 
-// const getAllUsers = catchAsync(async (req, res) => {
-//   const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
-//   const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
-
-//   const query = { ...filters, ...paginationOptions };
-
-//   const result = await UserServices.getAllUsers(query);
-
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     success: true,
-//     message: 'Users retrieved successfully',
-//     meta: result.meta,
-//     data: result.result,
-//   });
-// });
-
 const getAllUsers = catchAsync(async (req, res) => {
   const result = await UserServices.getAllUsers(req.query);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Users retrieved successfully',
-    data: result.result,
-  });
-});
-
-const getPremiumUsers = catchAsync(async (req, res) => {
-  const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
-  const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
-
-  const query = { ...filters, ...paginationOptions };
-
-  const result = await UserServices.getPremiumUsers(query);
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: 'Users retrieved successfully',
-    meta: result.meta,
-    data: result.result,
-  });
-});
-
-const getFreeUsers = catchAsync(async (req, res) => {
-  const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
-  const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
-
-  const query = { ...filters, ...paginationOptions };
-
-  const result = await UserServices.getFreeUsers(query);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -151,8 +101,6 @@ export const UserControllers = {
   getAllUsers,
   getSingleUser,
   deleteUser,
-  getPremiumUsers,
-  getFreeUsers,
   blockUser,
   updatePremiumStatus,
 };

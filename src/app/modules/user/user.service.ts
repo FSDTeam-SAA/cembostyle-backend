@@ -41,28 +41,19 @@ const updateProfile = async (userId: string, payload: Partial<IUser>, file?: any
   return result;
 };
 
-// const getAllUsers = async (query: Record<string, unknown>) => {
-//   const userSearchableFields = ['name', 'email', 'role'];
-
-//   const userQuery = new QueryBuilder(User.find({ role: 'USER' }), query)
-//     .search(userSearchableFields)
-//     .filter()
-//     .sort()
-//     .paginate()
-//     .fields();
-
-//   const result = await userQuery.modelQuery;
-//   const meta = await userQuery.countTotal();
-
-//   return {
-//     meta,
-//     result,
-//   };
-// };
-
 const getAllUsers = async (query: Record<string, unknown>) => {
-  const pipeline = [
-    { $match: { role: 'USER' } },
+  const { searchTerm, page = 1, limit = 10, sortBy, sortOrder } = query;
+
+  const matchStage: any = { role: 'USER' };
+  if (searchTerm) {
+    matchStage.$or = [
+      { name: { $regex: searchTerm, $options: 'i' } },
+      { email: { $regex: searchTerm, $options: 'i' } },
+    ];
+  }
+
+  const pipeline: any[] = [
+    { $match: matchStage },
     {
       $lookup: {
         from: 'payments',
@@ -71,53 +62,24 @@ const getAllUsers = async (query: Record<string, unknown>) => {
         as: 'payments',
       },
     },
+    { $addFields: { totalPayment: { $sum: '$payments.amount' } } },
+    { $project: { payments: 0 } },
     {
-      $addFields: {
-        totalPayment: { $sum: '$payments.amount' },
+      $facet: {
+        meta: [{ $count: 'total' }],
+        result: [
+          { $sort: { [(sortBy as string) || 'createdAt']: sortOrder === 'desc' ? -1 : 1 } },
+          { $skip: (Number(page) - 1) * Number(limit) },
+          { $limit: Number(limit) },
+        ],
       },
     },
-    { $project: { payments: 0 } },
   ];
 
-  const result = await User.aggregate(pipeline);
-  return { result };
-};
-
-const getPremiumUsers = async (query: Record<string, unknown>) => {
-  const userSearchableFields = ['name', 'email', 'role'];
-
-  const userQuery = new QueryBuilder(User.find({ role: 'USER', isPremium: true }), query)
-    .search(userSearchableFields)
-    .filter()
-    .sort()
-    .paginate()
-    .fields();
-
-  const result = await userQuery.modelQuery;
-  const meta = await userQuery.countTotal();
-
+  const data = await User.aggregate(pipeline);
   return {
-    meta,
-    result,
-  };
-};
-
-const getFreeUsers = async (query: Record<string, unknown>) => {
-  const userSearchableFields = ['name', 'email', 'role'];
-
-  const userQuery = new QueryBuilder(User.find({ role: 'USER', isPremium: false }), query)
-    .search(userSearchableFields)
-    .filter()
-    .sort()
-    .paginate()
-    .fields();
-
-  const result = await userQuery.modelQuery;
-  const meta = await userQuery.countTotal();
-
-  return {
-    meta,
-    result,
+    meta: { total: data[0].meta[0]?.total || 0 },
+    result: data[0].result,
   };
 };
 
@@ -162,8 +124,6 @@ export const UserServices = {
   getAllUsers,
   getSingleUser,
   deleteUser,
-  getPremiumUsers,
-  getFreeUsers,
   blockUser,
   updatePremiumStatus,
 };
