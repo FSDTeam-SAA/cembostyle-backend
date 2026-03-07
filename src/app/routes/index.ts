@@ -5,6 +5,7 @@ import { PreGalleryRoutes } from '../modules/preGallery/preGallery.route';
 import { AiStencilRoutes } from '../modules/aiStencil/aiStencil.route';
 import { StripeRoutes } from '../modules/stripe/stripe.route';
 import { PaymentRoutes } from '../modules/payment/payment.route';
+import { DashboardRoutes } from '../modules/dashboard/dashboard.route';
 
 const router = Router();
 
@@ -32,6 +33,10 @@ const moduleRoutes = [
   {
     path: '/payment',
     route: PaymentRoutes,
+  },
+  {
+    path: '/dashboard',
+    route: DashboardRoutes,
   },
 ];
 
