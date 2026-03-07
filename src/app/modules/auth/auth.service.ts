@@ -49,11 +49,12 @@ const loginUser = async (payload: Partial<IUser>) => {
   const user = await User.findOne({ email: payload.email }).select('+password');
   if (!user) throw new AppError(401, 'User not found');
 
+  if (user.isBlocked === true) {
+    throw new AppError(403, 'This account has been blocked');
+  }
+
   if (!payload.password) throw new AppError(400, 'Password is required');
-  const isPasswordMatched = await bcrypt.compare(
-    payload.password,
-    user.password as string,
-  );
+  const isPasswordMatched = await bcrypt.compare(payload.password, user.password as string);
 
   if (!isPasswordMatched) {
     throw new AppError(401, 'Password not matched');
@@ -118,6 +119,10 @@ const forgotPassword = async (email: string) => {
   const user = await User.findOne({ email });
   if (!user) throw new AppError(404, 'User not found');
 
+  if (user.isBlocked === true) {
+    throw new AppError(403, 'This account is blocked and cannot reset password');
+  }
+
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
   user.otp = otp;
@@ -180,18 +185,11 @@ const resetPassword = async (email: string, newPassword: string) => {
   };
 };
 
-const changePassword = async (
-  userId: string,
-  oldPassword: string,
-  newPassword: string,
-) => {
+const changePassword = async (userId: string, oldPassword: string, newPassword: string) => {
   const user = await User.findById(userId).select('+password');
   if (!user) throw new AppError(404, 'User not found');
 
-  const isPasswordMatched = await bcrypt.compare(
-    oldPassword,
-    user.password as string,
-  );
+  const isPasswordMatched = await bcrypt.compare(oldPassword, user.password as string);
 
   if (!isPasswordMatched) throw new AppError(400, 'Password not matched');
 
