@@ -3,7 +3,6 @@ import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { UserServices } from './user.service';
 import httpStatus from 'http-status';
-import pick from '../../utils/pick';
 
 const getProfile = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.id;

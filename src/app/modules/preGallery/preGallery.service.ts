@@ -16,10 +16,7 @@ const getGalleryItemsByCategory = async (category: string) => {
   return result;
 };
 
-const updateGalleryItem = async (
-  id: string,
-  payload: Partial<IGalleryImage>,
-) => {
+const updateGalleryItem = async (id: string, payload: Partial<IGalleryImage>) => {
   const result = await PreGallery.findByIdAndUpdate(id, payload, { new: true });
   return result;
 };

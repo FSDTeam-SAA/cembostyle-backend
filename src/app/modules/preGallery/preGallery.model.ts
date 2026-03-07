@@ -8,8 +8,6 @@ const preGallerySchema = new Schema<IGalleryImage>(
       url: { type: String },
       publicId: { type: String },
     },
-    // availableThemes: { type: [String] },
-    // styleLevel: { type: [String] },
   },
   { timestamps: true },
 );
