@@ -20,7 +20,11 @@ const createCheckoutSession = async (planType: 'monthly' | 'yearly', email: stri
       },
     ],
     mode: 'subscription',
+    subscription_data: {
+      trial_period_days: 3,
+    },
     customer_email: email, // Used to associate the session with the user
+    metadata: { planType: planType },
     success_url: `${config.urls.frontend}/success`,
     cancel_url: `${config.urls.frontend}/cancel`,
   });
