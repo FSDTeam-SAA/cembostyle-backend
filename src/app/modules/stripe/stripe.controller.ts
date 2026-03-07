@@ -5,6 +5,7 @@ import sendResponse from '../../utils/sendResponse';
 import Stripe from 'stripe';
 import config from '../../config';
 import { User } from '../user/user.model';
+import { Payment } from '../payment/payment.model';
 
 const stripe = new Stripe(config.stripe.secret_key as string);
 
@@ -39,15 +40,13 @@ const handleWebhook = async (req: Request, res: Response) => {
     const userId = session.client_reference_id;
 
     // Log the data to your terminal to inspect it!
-    console.log('--- SESSION RECEIVED ---');
-    console.log('Customer Email from Stripe:', session.customer_email);
-    console.log('Customer Details from Stripe:', session.customer_details?.email);
+    // console.log('--- SESSION RECEIVED ---');
+    // console.log('Customer Email from Stripe:', session.customer_email);
+    // console.log('Customer Details from Stripe:', session.customer_details?.email);
 
     const email = session.customer_email || session.customer_details?.email;
 
-    if (!email) {
-      console.log('CRITICAL: No email found in Stripe session!');
-    } else {
+    if (email) {
       const user = await User.findOneAndUpdate(
         { email },
         {
@@ -55,10 +54,20 @@ const handleWebhook = async (req: Request, res: Response) => {
           subscriptionId: session.subscription as string,
           subscriptionStatus: 'active',
         },
+        { new: true },
       );
 
-      if (!user) {
-        console.log('No user found in MongoDB with email:', email);
+      if (user) {
+        // Create the Payment record
+        await Payment.create({
+          user: user._id,
+          amount: session.amount_total! / 100, // Convert cents to currency units
+          currency: session.currency as string,
+          stripeTransactionId: session.id,
+          planType: session.metadata?.planType || 'monthly', // Ensure you pass planType in metadata during session creation
+          paymentStatus: 'succeeded',
+          invoiceId: session.invoice as string,
+        });
       }
     }
   }
