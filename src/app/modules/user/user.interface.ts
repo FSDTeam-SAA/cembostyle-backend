@@ -19,4 +19,8 @@ export interface IUser {
   stripeCustomerId?: string;
   subscriptionId?: string;
   subscriptionStatus?: 'active' | 'canceled' | 'past_due' | 'incomplete';
+
+  isBlocked: boolean;
+  phone?: string;
+  bio?: string;
 }

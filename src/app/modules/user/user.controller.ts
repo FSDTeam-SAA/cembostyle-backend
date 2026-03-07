@@ -32,19 +32,58 @@ const updateProfile = catchAsync(async (req, res) => {
   });
 });
 
+// const getAllUsers = catchAsync(async (req, res) => {
+//   const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
+//   const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
+
+//   const query = { ...filters, ...paginationOptions };
+
+//   const result = await UserServices.getAllUsers(query);
+
+//   sendResponse(res, {
+//     statusCode: httpStatus.OK,
+//     success: true,
+//     message: 'Users retrieved successfully',
+//     meta: result.meta,
+//     data: result.result,
+//   });
+// });
+
 const getAllUsers = catchAsync(async (req, res) => {
+  const result = await UserServices.getAllUsers(req.query);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Users retrieved successfully',
+    data: result.result,
+  });
+});
+
+const getPremiumUsers = catchAsync(async (req, res) => {
   const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
-  const paginationOptions = pick(req.query, [
-    'page',
-    'limit',
-    'sortBy',
-    'sortOrder',
-    'fields',
-  ]);
+  const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
 
   const query = { ...filters, ...paginationOptions };
 
-  const result = await UserServices.getAllUsers(query);
+  const result = await UserServices.getPremiumUsers(query);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Users retrieved successfully',
+    meta: result.meta,
+    data: result.result,
+  });
+});
+
+const getFreeUsers = catchAsync(async (req, res) => {
+  const filters = pick(req.query, ['searchTerm', 'role', 'name', 'email']);
+  const paginationOptions = pick(req.query, ['page', 'limit', 'sortBy', 'sortOrder', 'fields']);
+
+  const query = { ...filters, ...paginationOptions };
+
+  const result = await UserServices.getFreeUsers(query);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -79,10 +118,41 @@ const deleteUser = catchAsync(async (req, res) => {
   });
 });
 
+const blockUser = catchAsync(async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  const { isBlocked } = req.body;
+
+  const result = await UserServices.blockUser(userId as string, isBlocked);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: isBlocked ? 'User blocked successfully' : 'User unblocked successfully',
+    data: result,
+  });
+});
+
+const updatePremiumStatus = catchAsync(async (req: Request, res: Response) => {
+  const { email, isPremium } = req.body;
+
+  const result = await UserServices.updatePremiumStatus(email, isPremium);
+
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: 'User premium status updated successfully',
+    data: result,
+  });
+});
+
 export const UserControllers = {
   getProfile,
   updateProfile,
   getAllUsers,
   getSingleUser,
   deleteUser,
+  getPremiumUsers,
+  getFreeUsers,
+  blockUser,
+  updatePremiumStatus,
 };

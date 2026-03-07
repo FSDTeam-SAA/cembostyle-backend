@@ -29,6 +29,9 @@ const userSchema = new Schema<IUser>(
       type: String,
       enum: ['active', 'canceled', 'past_due', 'incomplete'],
     },
+    isBlocked: { type: Boolean, default: false },
+    phone: { type: String },
+    bio: { type: String },
   },
   {
     timestamps: true,
