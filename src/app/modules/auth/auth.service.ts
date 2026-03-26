@@ -30,8 +30,8 @@ const registerUser = async (payload: Partial<IUser>) => {
 
   const refreshToken = jwtHelpers.createToken(
     jwtPayload,
-    config.jwt.access_secret as Secret,
-    config.jwt.access_expires_in as string | number,
+    config.jwt.refresh_secret as Secret,
+    config.jwt.refresh_expires_in as string | number,
   );
 
   const { password, ...userWithoutPassword } = newUser.toObject();

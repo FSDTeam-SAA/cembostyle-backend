@@ -7,6 +7,14 @@ const stripe = new Stripe(config.stripe.secret_key as string, {
 
 const createCheckoutSession = async (planType: 'monthly' | 'yearly', email: string) => {
   const priceId = planType === 'monthly' ? config.stripe.price_monthly : config.stripe.price_yearly;
+  const successUrl =
+    config.urls.frontend ||
+    config.urls.backend ||
+    'https://example.com/success';
+  const cancelUrl =
+    config.urls.frontend ||
+    config.urls.backend ||
+    'https://example.com/cancel';
 
   if (!priceId) {
     throw new Error('Invalid plan selection');
@@ -25,8 +33,8 @@ const createCheckoutSession = async (planType: 'monthly' | 'yearly', email: stri
     },
     customer_email: email, // Used to associate the session with the user
     metadata: { planType: planType },
-    success_url: `${config.urls.frontend}/success`,
-    cancel_url: `${config.urls.frontend}/cancel`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
   });
 
   return session;
