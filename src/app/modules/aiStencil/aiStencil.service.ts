@@ -305,6 +305,7 @@ const createStencil = async (payload: IAiStencil, file: Express.Multer.File) => 
       url: uploadedStencil.url,
       publicId: uploadedStencil.public_id,
     };
+    payload.isSaved = payload.isSaved ?? false;
     payload.status = 'COMPLETED';
     delete payload.errorCode;
     delete payload.errorMessage;
@@ -323,6 +324,7 @@ const createStencil = async (payload: IAiStencil, file: Express.Multer.File) => 
         url: uploadedStencil.url,
         publicId: uploadedStencil.public_id,
       };
+      payload.isSaved = payload.isSaved ?? false;
       payload.status = 'COMPLETED';
       delete payload.errorCode;
       delete payload.errorMessage;
@@ -332,6 +334,7 @@ const createStencil = async (payload: IAiStencil, file: Express.Multer.File) => 
       const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
       console.error('Service Error:', errorMessage, fallbackError);
       payload.status = 'FAILED';
+      payload.isSaved = payload.isSaved ?? false;
       payload.errorCode = errorCode;
       payload.errorMessage = errorMessage;
       return await AiStencil.create(payload);
@@ -421,8 +424,9 @@ const createGalleryPreview = async (
 };
 
 const getMyAllStencil = async (userId: string) => {
-  const data = await AiStencil.find({ user: userId });
-  const count = await AiStencil.countDocuments({ user: userId });
+  const query = { user: userId, isSaved: true };
+  const data = await AiStencil.find(query);
+  const count = await AiStencil.countDocuments(query);
   return { data, count };
 };
 

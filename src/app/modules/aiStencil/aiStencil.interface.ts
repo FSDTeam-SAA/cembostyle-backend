@@ -22,6 +22,7 @@ export interface IAiStencil {
   detailLevel?: number;
   brightness?: number;
   contrast?: number;
+  isSaved?: boolean;
   status?: 'COMPLETED' | 'FAILED';
   errorCode?: TStencilErrorCode;
   errorMessage?: string;

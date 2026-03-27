@@ -17,6 +17,7 @@ const aiStencilSchema = new Schema<IAiStencil>(
     detailLevel: { type: Number },
     brightness: { type: Number },
     contrast: { type: Number },
+    isSaved: { type: Boolean, default: false },
     status: { type: String, enum: ['COMPLETED', 'FAILED'] },
     errorCode: { type: String },
     errorMessage: { type: String },
