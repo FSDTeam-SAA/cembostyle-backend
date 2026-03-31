@@ -31,6 +31,7 @@ const registerUser = catchAsync(async (req: Request, res: Response) => {
     message: 'User registered successfully',
     data: {
       accessToken,
+      refreshToken,
       user: userResponse(user),
     },
   });
@@ -51,14 +52,15 @@ const loginUser = catchAsync(async (req: Request, res: Response) => {
     message: 'User logged in successfully',
     data: {
       accessToken,
+      refreshToken,
       user: userResponse(user),
     },
   });
 });
 
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
-  const { refreshToken } = req.cookies;
-  const result = await AuthServices.refreshToken(refreshToken);
+  const token = req.cookies.refreshToken || req.body?.refreshToken;
+  const result = await AuthServices.refreshToken(token);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -108,13 +110,15 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
     message: 'Password reset successfully!',
     data: {
       accessToken,
+      refreshToken,
     },
   });
 });
 
 const changePassword = catchAsync(async (req: Request, res: Response) => {
   const { id: userId } = req.user;
-  const { oldPassword, newPassword } = req.body;
+  const oldPassword = req.body.oldPassword || req.body.currentPassword;
+  const { newPassword } = req.body;
 
   const result = await AuthServices.changePassword(
     userId,

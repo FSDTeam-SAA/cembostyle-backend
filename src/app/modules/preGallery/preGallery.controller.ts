@@ -3,6 +3,7 @@ import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { fileUploader } from '../../utils/fileUploader';
 import { PreGalleryService } from './preGallery.service';
+import { AiStencilService } from '../aiStencil/aiStencil.service';
 
 const createGalleryItem = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) {
@@ -52,6 +53,31 @@ const getGalleryItemsByCategory = catchAsync(
   },
 );
 
+const generateGalleryPreview = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { colorTheme, detailLevel, brightness, contrast } = req.body;
+  const galleryItem = await PreGalleryService.getGalleryItemById(id as string);
+
+  const result = await AiStencilService.createGalleryPreview({
+    originalImage: galleryItem.image,
+    style: galleryItem.category,
+    colorTheme,
+    detailLevel: Number(detailLevel ?? 1),
+    brightness: Number(brightness ?? 0.8),
+    contrast: Number(contrast ?? 0.6),
+  });
+
+  sendResponse(res, {
+    statusCode: result.status === 'FAILED' ? 502 : 200,
+    success: result.status !== 'FAILED',
+    message:
+      result.status === 'FAILED'
+        ? result.errorMessage || 'Gallery preview generation failed'
+        : 'Gallery preview generated successfully',
+    data: result,
+  });
+});
+
 const updateGalleryItem = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.params;
   const result = await PreGalleryService.updateGalleryItem(
@@ -83,6 +109,7 @@ export const PreGalleryController = {
   createGalleryItem,
   getAllGalleryItems,
   getGalleryItemsByCategory,
+  generateGalleryPreview,
   updateGalleryItem,
   deleteGalleryItem,
 };

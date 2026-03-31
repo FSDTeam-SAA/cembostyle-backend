@@ -10,6 +10,7 @@ router.post(
   PreGalleryController.createGalleryItem,
 );
 router.get('/get-all-gallery-items', PreGalleryController.getAllGalleryItems);
+router.post('/:id/preview', PreGalleryController.generateGalleryPreview);
 router.get('/:category', PreGalleryController.getGalleryItemsByCategory);
 router.patch('/:id', PreGalleryController.updateGalleryItem);
 router.delete('/:id', PreGalleryController.deleteGalleryItem);

@@ -3,7 +3,6 @@ import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { AiStencilService } from './aiStencil.service';
 import { TStencilErrorCode } from './aiStencil.interface';
-import { User } from '../user/user.model';
 
 const getFailureStatusCode = (errorCode?: TStencilErrorCode) => {
   switch (errorCode) {
@@ -23,16 +22,6 @@ const getFailureStatusCode = (errorCode?: TStencilErrorCode) => {
 const createStencil = catchAsync(async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Image file is required' });
-  }
-
-  // Fetch user from database to check premium status
-  const user = await User.findById(req.user?.id);
-
-  if (!user || !user.isPremium) {
-    return res.status(403).json({
-      success: false,
-      message: 'You have to buy premium to access this feature',
-    });
   }
 
   // Pass user ID from auth middleware and style from body
