@@ -55,13 +55,15 @@ const getGalleryItemsByCategory = catchAsync(
 
 const generateGalleryPreview = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { colorTheme, detailLevel, brightness, contrast } = req.body;
+  const { colorTheme, colorThemeId, detailLevel, brightness, contrast } = req.body;
   const galleryItem = await PreGalleryService.getGalleryItemById(id as string);
 
   const result = await AiStencilService.createGalleryPreview({
     originalImage: galleryItem.image,
     style: galleryItem.category,
+    styleId: req.body.styleId,
     colorTheme,
+    colorThemeId,
     detailLevel: Number(detailLevel ?? 1),
     brightness: Number(brightness ?? 0.8),
     contrast: Number(contrast ?? 0.6),

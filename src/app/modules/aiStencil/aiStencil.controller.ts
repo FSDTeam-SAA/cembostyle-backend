@@ -2,7 +2,28 @@ import { Request, Response } from 'express';
 import catchAsync from '../../utils/catchAsync';
 import sendResponse from '../../utils/sendResponse';
 import { AiStencilService } from './aiStencil.service';
-import { TStencilErrorCode } from './aiStencil.interface';
+import { IAiImageRef, TStencilErrorCode } from './aiStencil.interface';
+
+const parseMaybeJson = <T>(value: unknown): T | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    return value as T;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch (_) {
+    return undefined;
+  }
+};
+
+const parseNumber = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 const getFailureStatusCode = (errorCode?: TStencilErrorCode) => {
   switch (errorCode) {
@@ -20,16 +41,25 @@ const getFailureStatusCode = (errorCode?: TStencilErrorCode) => {
 };
 
 const createStencil = catchAsync(async (req: Request, res: Response) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'Image file is required' });
+  const originalImage = parseMaybeJson<IAiImageRef>(req.body.originalImage);
+
+  if (!req.file && !originalImage) {
+    return res
+      .status(400)
+      .json({ success: false, message: 'Image file or original image reference is required' });
   }
 
-  // Pass user ID from auth middleware and style from body
   const result = await AiStencilService.createStencil(
     {
       user: req.user?.id,
-      style: req.body.style || 'Outline',
-      ...req.body,
+      style: req.body.style || req.body.styleId || 'outline',
+      styleId: req.body.styleId,
+      colorTheme: req.body.colorTheme,
+      colorThemeId: req.body.colorThemeId,
+      ...(originalImage ? { originalImage } : {}),
+      detailLevel: parseNumber(req.body.detailLevel, 1),
+      brightness: parseNumber(req.body.brightness, 0.8),
+      contrast: parseNumber(req.body.contrast, 0.6),
     },
     req.file,
   );

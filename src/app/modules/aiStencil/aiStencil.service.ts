@@ -4,21 +4,31 @@ import {
   HarmBlockThreshold,
   HarmCategory,
 } from '@google/generative-ai';
-import { IAiStencil, TStencilErrorCode } from './aiStencil.interface';
-import { AiStencil } from './aiStencil.model';
-import config from '../../config';
-import { STENCIL_PROMPTS } from './aiStencil.constant';
-import { fileUploader } from '../../utils/fileUploader';
+import { createHash } from 'crypto';
 import path from 'path';
 import { Readable } from 'stream';
+import { inspect } from 'util';
 import sharp from 'sharp';
+import config from '../../config';
+import { fileUploader } from '../../utils/fileUploader';
+import {
+  COLOR_THEME_SPECS,
+  DEFAULT_STYLE_ID,
+  DEFAULT_THEME_ID,
+  STENCIL_STYLE_SPECS,
+  STYLE_ALIASES,
+  THEME_ALIASES,
+} from './aiStencil.constant';
+import {
+  IAiImageRef,
+  IAiStencil,
+  TColorThemeId,
+  TStencilErrorCode,
+  TStencilStyleId,
+  TThemeRenderMode,
+} from './aiStencil.interface';
+import { AiStencil } from './aiStencil.model';
 
-const DEFAULT_GEMINI_TIMEOUT_MS = 60000;
-const configuredGeminiTimeout = Number(config.gemini.timeout_ms);
-const GEMINI_TIMEOUT_MS =
-  Number.isFinite(configuredGeminiTimeout) && configuredGeminiTimeout > 0
-    ? configuredGeminiTimeout
-    : DEFAULT_GEMINI_TIMEOUT_MS;
 const GEMINI_IMAGE_MODELS = [
   config.gemini.stencil_model,
   'gemini-2.5-flash-image',
@@ -27,7 +37,6 @@ const GEMINI_IMAGE_MODELS = [
 ].filter(
   (model, index, models): model is string => Boolean(model) && models.indexOf(model) === index,
 );
-const STENCIL_STYLES = Object.keys(STENCIL_PROMPTS) as Array<keyof typeof STENCIL_PROMPTS>;
 
 const getGenerativeAIClient = () => {
   if (!config.gemini.api_key) {
@@ -35,22 +44,6 @@ const getGenerativeAIClient = () => {
   }
 
   return new GoogleGenerativeAI(config.gemini.api_key);
-};
-
-const withTimeout = <T>(promise: Promise<T>, timeoutMs: number) => {
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    setTimeout(
-      () =>
-        reject(
-          Object.assign(new Error(`AI Timeout after ${Math.ceil(timeoutMs / 1000)}s`), {
-            status: 504,
-          }),
-        ),
-      timeoutMs,
-    );
-  });
-
-  return Promise.race([promise, timeoutPromise]);
 };
 
 const extractGeneratedImage = (response: GenerateContentResponse) => {
@@ -78,6 +71,40 @@ const shouldTryNextModel = (error: unknown) => {
   );
 };
 
+const formatGeminiError = (error: unknown) => {
+  if (error instanceof Error) {
+    const geminiError = error as Error & {
+      status?: number;
+      response?: unknown;
+      details?: unknown;
+      errorDetails?: unknown;
+      cause?: unknown;
+    };
+
+    return inspect(
+      {
+        name: geminiError.name,
+        message: geminiError.message,
+        status: geminiError.status,
+        details: geminiError.details,
+        errorDetails: geminiError.errorDetails,
+        response: geminiError.response,
+        cause: geminiError.cause,
+        stack: geminiError.stack,
+      },
+      {
+        depth: 10,
+        colors: false,
+      },
+    );
+  }
+
+  return inspect(error, {
+    depth: 10,
+    colors: false,
+  });
+};
+
 const classifyAiError = (
   error: unknown,
   attemptedModels: string[],
@@ -85,13 +112,6 @@ const classifyAiError = (
   const status = (error as { status?: number })?.status;
   const message = (error as Error)?.message || 'Unknown AI error';
   const primaryModel = attemptedModels[0] || 'configured Gemini image model';
-
-  if (status === 504 || message.includes('AI Timeout')) {
-    return {
-      errorCode: 'AI_TIMEOUT',
-      errorMessage: `Gemini image generation timed out after ${Math.ceil(GEMINI_TIMEOUT_MS / 1000)}s.`,
-    };
-  }
 
   if (status === 429 || /quota exceeded|too many requests/i.test(message)) {
     return {
@@ -123,54 +143,131 @@ const classifyAiError = (
   };
 };
 
-const normalizeStyle = (style?: string) => {
-  if (style && STENCIL_STYLES.includes(style as (typeof STENCIL_STYLES)[number])) {
-    return style as keyof typeof STENCIL_PROMPTS;
+const normalizeKey = (value?: string) =>
+  value
+    ?.trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') ?? '';
+
+const normalizeStyleId = (value?: string): TStencilStyleId => {
+  const normalizedValue = value?.trim() ?? '';
+
+  if (normalizedValue in STENCIL_STYLE_SPECS) {
+    return normalizedValue as TStencilStyleId;
   }
 
-  return 'Outline';
+  const alias = STYLE_ALIASES[normalizeKey(normalizedValue)] || STYLE_ALIASES[normalizedValue.toLowerCase()];
+  return alias || DEFAULT_STYLE_ID;
+};
+
+const normalizeThemeId = (value?: string): TColorThemeId => {
+  const normalizedValue = value?.trim() ?? '';
+
+  if (normalizedValue in COLOR_THEME_SPECS) {
+    return normalizedValue as TColorThemeId;
+  }
+
+  const alias = THEME_ALIASES[normalizeKey(normalizedValue)] || THEME_ALIASES[normalizedValue.toLowerCase()];
+  return alias || DEFAULT_THEME_ID;
 };
 
 const getDetailDescriptor = (detailLevel?: number) => {
   switch (detailLevel) {
     case 0:
-      return 'Simple';
+      return 'Keep the result simple and uncluttered.';
     case 1:
-      return 'Basic';
+      return 'Keep a balanced amount of usable detail.';
     case 2:
-    case 3:
-      return 'Sketch';
+      return 'Keep rich detail while preserving readability.';
     default:
-      return '';
+      return 'Keep a balanced amount of usable detail.';
   }
 };
 
+const normalizeNumericPreference = (
+  value: unknown,
+  fallback: number,
+  { min = 0, max = 1 }: { min?: number; max?: number } = {},
+) => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const normalizeImageRef = (value?: Partial<IAiImageRef> | null): IAiImageRef | undefined => {
+  if (!value?.url) {
+    return undefined;
+  }
+
+  return {
+    url: value.url,
+    publicId: value.publicId || '',
+  };
+};
+
+const normalizeStencilPayload = (payload: Partial<IAiStencil>) => {
+  const styleId = normalizeStyleId(payload.styleId || payload.style);
+  const colorThemeId = normalizeThemeId(payload.colorThemeId || payload.colorTheme);
+  const styleSpec = STENCIL_STYLE_SPECS[styleId];
+  const themeSpec = COLOR_THEME_SPECS[colorThemeId];
+  const detailLevel = Math.round(normalizeNumericPreference(payload.detailLevel, 1, { min: 0, max: 2 }));
+  const brightness = normalizeNumericPreference(payload.brightness, 0.8);
+  const contrast = normalizeNumericPreference(payload.contrast, 0.6);
+
+  return {
+    ...payload,
+    originalImage: normalizeImageRef(payload.originalImage),
+    stencilImage: normalizeImageRef(payload.stencilImage),
+    baseStencilImage: normalizeImageRef(payload.baseStencilImage),
+    styleId,
+    style: styleSpec.label,
+    colorThemeId,
+    colorTheme: themeSpec.label,
+    themeRenderMode: themeSpec.renderMode,
+    detailLevel,
+    brightness,
+    contrast,
+  } as Partial<IAiStencil> & {
+    styleId: TStencilStyleId;
+    colorThemeId: TColorThemeId;
+    themeRenderMode: TThemeRenderMode;
+    style: string;
+    colorTheme: string;
+    detailLevel: number;
+    brightness: number;
+    contrast: number;
+  };
+};
+
 const buildStencilPrompt = (payload: Partial<IAiStencil>) => {
-  const normalizedStyle = normalizeStyle(payload.style);
-  const detailDescriptor = getDetailDescriptor(payload.detailLevel);
-  const promptParts = [STENCIL_PROMPTS[normalizedStyle]];
+  const normalized = normalizeStencilPayload(payload);
+  const styleSpec = STENCIL_STYLE_SPECS[normalized.styleId];
+  const themeSpec = COLOR_THEME_SPECS[normalized.colorThemeId];
+  const promptParts = [
+    styleSpec.prompt,
+    getDetailDescriptor(normalized.detailLevel),
+    `Source brightness preference: ${normalized.brightness.toFixed(2)}.`,
+    `Source contrast preference: ${normalized.contrast.toFixed(2)}.`,
+  ];
 
-  if (payload.colorTheme) {
+  if (themeSpec.renderMode === 'gemini' && themeSpec.prompt) {
+    promptParts.push(themeSpec.prompt);
+  } else {
     promptParts.push(
-      `Use the visual treatment "${payload.colorTheme}" only when it helps readability and line separation.`,
+      'Keep the generated result as a neutral monochrome sketch with strong dark lines on a bright background so it can be safely recolored locally with a single ink tint.',
     );
   }
 
-  if (detailDescriptor) {
-    promptParts.push(
-      `Target detail level: ${detailDescriptor}. Keep the output suitable as a tattoo stencil reference.`,
-    );
-  }
+  promptParts.push(
+    'Return the transformed result as an image only. Do not include a text description.',
+  );
 
-  if (typeof payload.brightness === 'number') {
-    promptParts.push(`Approximate source brightness preference: ${payload.brightness.toFixed(2)}.`);
-  }
-
-  if (typeof payload.contrast === 'number') {
-    promptParts.push(`Approximate source contrast preference: ${payload.contrast.toFixed(2)}.`);
-  }
-
-  promptParts.push('Return the transformed result as an image only. Do not include a text description.');
   return promptParts.join(' ');
 };
 
@@ -200,6 +297,58 @@ const createMulterFileFromUrl = async (imageUrl: string) => {
   } as unknown as Express.Multer.File;
 };
 
+const createSourceFingerprint = (file?: Express.Multer.File, originalImage?: IAiImageRef) => {
+  if (file?.buffer?.length) {
+    return createHash('sha256').update(file.buffer).digest('hex');
+  }
+
+  if (originalImage?.publicId) {
+    return createHash('sha256').update(originalImage.publicId).digest('hex');
+  }
+
+  if (originalImage?.url) {
+    return createHash('sha256').update(originalImage.url).digest('hex');
+  }
+
+  return createHash('sha256').update(`unknown-source-${Date.now()}`).digest('hex');
+};
+
+const buildGenerationSignature = (
+  payload: ReturnType<typeof normalizeStencilPayload> & { user?: IAiStencil['user'] },
+) => {
+  const parts = [
+    String(payload.user || 'anonymous'),
+    payload.sourceFingerprint || '',
+    payload.styleId,
+    payload.colorThemeId,
+    payload.themeRenderMode,
+    String(payload.detailLevel),
+    payload.brightness.toFixed(2),
+    payload.contrast.toFixed(2),
+  ];
+
+  return createHash('sha256').update(parts.join('::')).digest('hex');
+};
+
+const uploadOriginalIfNeeded = async (
+  payload: ReturnType<typeof normalizeStencilPayload>,
+  file?: Express.Multer.File,
+) => {
+  if (payload.originalImage?.url || !file) {
+    return payload.originalImage;
+  }
+
+  const startedAt = Date.now();
+  console.log('1. Uploading original to Cloudinary...');
+  const uploadedOriginal = await fileUploader.uploadToCloudinary(file);
+  console.log(`Original upload completed in ${Date.now() - startedAt}ms`);
+
+  return {
+    url: uploadedOriginal.url,
+    publicId: uploadedOriginal.public_id,
+  };
+};
+
 const generateStencilImage = async (prompt: string, file: Express.Multer.File) => {
   if (GEMINI_IMAGE_MODELS.length === 0) {
     throw new Error('No Gemini image model is configured.');
@@ -217,7 +366,8 @@ const generateStencilImage = async (prompt: string, file: Express.Multer.File) =
 
   for (const modelName of GEMINI_IMAGE_MODELS) {
     try {
-      console.log(`2. Requesting AI Generation with ${modelName}...`);
+      console.log(`2. Requesting AI generation with ${modelName}...`);
+      const startedAt = Date.now();
 
       const model = genAI.getGenerativeModel({
         model: modelName,
@@ -229,14 +379,13 @@ const generateStencilImage = async (prompt: string, file: Express.Multer.File) =
         ],
       });
 
-      const result = await withTimeout(
-        model.generateContent([{ text: prompt }, imagePart]),
-        GEMINI_TIMEOUT_MS,
-      );
+      const result = await model.generateContent([{ text: prompt }, imagePart]);
+      console.log(`Gemini generation completed in ${Date.now() - startedAt}ms`);
 
       return extractGeneratedImage(result.response);
     } catch (error) {
       lastError = error;
+      console.error(`Gemini model ${modelName} failed: ${formatGeminiError(error)}`);
 
       if (shouldTryNextModel(error)) {
         console.warn(`Gemini model ${modelName} is unavailable, trying next fallback.`);
@@ -282,124 +431,200 @@ const generateStencilFallback = async (
   };
 };
 
-const createStencil = async (payload: IAiStencil, file: Express.Multer.File) => {
+const uploadGeneratedStencil = async (base64: string, mimeType: string) => {
+  const startedAt = Date.now();
+  console.log('3. Uploading stencil to Cloudinary...');
+  const uploadedStencil = await fileUploader.uploadBase64ToCloudinary(base64, mimeType);
+  console.log(`Generated image upload completed in ${Date.now() - startedAt}ms`);
+
+  return {
+    url: uploadedStencil.url,
+    publicId: uploadedStencil.public_id,
+  };
+};
+
+const findCachedStencil = async (
+  payload: ReturnType<typeof normalizeStencilPayload> & { generationSignature?: string; user?: IAiStencil['user'] },
+) => {
+  if (!payload.user || !payload.generationSignature) {
+    return null;
+  }
+
+  const startedAt = Date.now();
+  const cached = await AiStencil.findOne({
+    user: payload.user,
+    generationSignature: payload.generationSignature,
+    status: 'COMPLETED',
+  }).sort({ updatedAt: -1 });
+
+  console.log(
+    `Stencil cache ${cached ? 'hit' : 'miss'} for ${payload.generationSignature} in ${Date.now() - startedAt}ms`,
+  );
+
+  return cached;
+};
+
+const finalizeCompletedPayload = (
+  payload: ReturnType<typeof normalizeStencilPayload> & {
+    sourceFingerprint: string;
+    generationSignature: string;
+  },
+  generatedImageRef: IAiImageRef,
+) => {
+  payload.baseStencilImage = generatedImageRef;
+  payload.stencilImage = generatedImageRef;
+  payload.isSaved = payload.isSaved ?? false;
+  payload.status = 'COMPLETED';
+  delete payload.errorCode;
+  delete payload.errorMessage;
+
+  return payload;
+};
+
+const ensureWorkingFile = async (
+  payload: ReturnType<typeof normalizeStencilPayload>,
+  file?: Express.Multer.File,
+) => {
+  if (file) {
+    return file;
+  }
+
+  if (payload.originalImage?.url) {
+    return createMulterFileFromUrl(payload.originalImage.url);
+  }
+
+  throw new Error('Image file or original image reference is required.');
+};
+
+const createStencil = async (payload: IAiStencil, file?: Express.Multer.File) => {
+  const normalizedPayload = normalizeStencilPayload(payload);
+
   try {
-    console.log('1. Uploading original to Cloudinary...');
-    const uploadedOriginal = await fileUploader.uploadToCloudinary(file);
-    payload.originalImage = {
-      url: uploadedOriginal.url,
-      publicId: uploadedOriginal.public_id,
-    };
+    const originalImage = await uploadOriginalIfNeeded(normalizedPayload, file);
+    if (originalImage) {
+      normalizedPayload.originalImage = originalImage;
+    }
 
-    payload.style = normalizeStyle(payload.style);
-    const prompt = buildStencilPrompt(payload);
-    const generatedImage = await generateStencilImage(prompt, file);
+    const workingFile = await ensureWorkingFile(normalizedPayload, file);
+    normalizedPayload.sourceFingerprint = createSourceFingerprint(workingFile, normalizedPayload.originalImage);
+    normalizedPayload.generationSignature = buildGenerationSignature({
+      ...normalizedPayload,
+      sourceFingerprint: normalizedPayload.sourceFingerprint,
+    });
 
-    console.log('3. Uploading Stencil to Cloudinary...');
-    const uploadedStencil = await fileUploader.uploadBase64ToCloudinary(
-      generatedImage.base64,
-      generatedImage.mimeType,
+    const cachedStencil = await findCachedStencil(normalizedPayload);
+    if (cachedStencil) {
+      return cachedStencil;
+    }
+
+    const prompt = buildStencilPrompt(normalizedPayload);
+    const generatedImage = await generateStencilImage(prompt, workingFile);
+    const uploadedStencil = await uploadGeneratedStencil(generatedImage.base64, generatedImage.mimeType);
+
+    finalizeCompletedPayload(
+      normalizedPayload as ReturnType<typeof normalizeStencilPayload> & {
+        sourceFingerprint: string;
+        generationSignature: string;
+      },
+      uploadedStencil,
     );
 
-    payload.stencilImage = {
-      url: uploadedStencil.url,
-      publicId: uploadedStencil.public_id,
-    };
-    payload.isSaved = payload.isSaved ?? false;
-    payload.status = 'COMPLETED';
-    delete payload.errorCode;
-    delete payload.errorMessage;
-
-    return await AiStencil.create(payload);
+    return await AiStencil.create(normalizedPayload);
   } catch (error: unknown) {
     try {
+      console.error(`Gemini generation error details: ${formatGeminiError(error)}`);
       console.warn('Gemini generation failed, falling back to local stencil processing.');
-      const fallbackImage = await generateStencilFallback(file, payload);
-      const uploadedStencil = await fileUploader.uploadBase64ToCloudinary(
-        fallbackImage.base64,
-        fallbackImage.mimeType,
+
+      if (!normalizedPayload.originalImage) {
+        const originalImage = await uploadOriginalIfNeeded(normalizedPayload, file);
+        if (originalImage) {
+          normalizedPayload.originalImage = originalImage;
+        }
+      }
+      const workingFile = await ensureWorkingFile(normalizedPayload, file);
+      normalizedPayload.sourceFingerprint =
+        normalizedPayload.sourceFingerprint ||
+        createSourceFingerprint(workingFile, normalizedPayload.originalImage);
+      normalizedPayload.generationSignature =
+        normalizedPayload.generationSignature ||
+        buildGenerationSignature({
+          ...normalizedPayload,
+          sourceFingerprint: normalizedPayload.sourceFingerprint,
+        });
+
+      const fallbackImage = await generateStencilFallback(workingFile, normalizedPayload);
+      const uploadedStencil = await uploadGeneratedStencil(fallbackImage.base64, fallbackImage.mimeType);
+
+      finalizeCompletedPayload(
+        normalizedPayload as ReturnType<typeof normalizeStencilPayload> & {
+          sourceFingerprint: string;
+          generationSignature: string;
+        },
+        uploadedStencil,
       );
 
-      payload.stencilImage = {
-        url: uploadedStencil.url,
-        publicId: uploadedStencil.public_id,
-      };
-      payload.isSaved = payload.isSaved ?? false;
-      payload.status = 'COMPLETED';
-      delete payload.errorCode;
-      delete payload.errorMessage;
-
-      return await AiStencil.create(payload);
+      return await AiStencil.create(normalizedPayload);
     } catch (fallbackError: unknown) {
       const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
       console.error('Service Error:', errorMessage, fallbackError);
-      payload.status = 'FAILED';
-      payload.isSaved = payload.isSaved ?? false;
-      payload.errorCode = errorCode;
-      payload.errorMessage = errorMessage;
-      return await AiStencil.create(payload);
+      normalizedPayload.status = 'FAILED';
+      normalizedPayload.isSaved = normalizedPayload.isSaved ?? false;
+      normalizedPayload.errorCode = errorCode;
+      normalizedPayload.errorMessage = errorMessage;
+      return await AiStencil.create(normalizedPayload);
     }
   }
 };
 
 const createGalleryPreview = async (
   payload: Partial<IAiStencil> & {
-    originalImage: {
-      url: string;
-      publicId: string;
-    };
+    originalImage: IAiImageRef;
   },
 ) => {
-  const normalizedStyle = normalizeStyle(payload.style);
+  const normalizedPayload = normalizeStencilPayload(payload);
 
   try {
-    const file = await createMulterFileFromUrl(payload.originalImage.url);
-    const prompt = buildStencilPrompt({
-      ...payload,
-      style: normalizedStyle,
-    });
+    const file = await ensureWorkingFile(normalizedPayload);
+    const prompt = buildStencilPrompt(normalizedPayload);
     const generatedImage = await generateStencilImage(prompt, file);
-    const uploadedStencil = await fileUploader.uploadBase64ToCloudinary(
-      generatedImage.base64,
-      generatedImage.mimeType,
-    );
+    const uploadedStencil = await uploadGeneratedStencil(generatedImage.base64, generatedImage.mimeType);
 
     return {
-      originalImage: payload.originalImage,
-      stencilImage: {
-        url: uploadedStencil.url,
-        publicId: uploadedStencil.public_id,
-      },
-      style: normalizedStyle,
-      colorTheme: payload.colorTheme || '',
-      detailLevel: payload.detailLevel ?? 1,
-      brightness: payload.brightness ?? 0.8,
-      contrast: payload.contrast ?? 0.6,
+      originalImage: normalizedPayload.originalImage,
+      stencilImage: uploadedStencil,
+      baseStencilImage: uploadedStencil,
+      style: normalizedPayload.style,
+      styleId: normalizedPayload.styleId,
+      colorTheme: normalizedPayload.colorTheme,
+      colorThemeId: normalizedPayload.colorThemeId,
+      themeRenderMode: normalizedPayload.themeRenderMode,
+      detailLevel: normalizedPayload.detailLevel,
+      brightness: normalizedPayload.brightness,
+      contrast: normalizedPayload.contrast,
       status: 'COMPLETED' as const,
       errorCode: undefined,
       errorMessage: undefined,
     };
   } catch (error: unknown) {
     try {
+      console.error(`Gemini gallery preview error details: ${formatGeminiError(error)}`);
       console.warn('Gemini gallery preview failed, using local stencil fallback.');
-      const file = await createMulterFileFromUrl(payload.originalImage.url);
-      const fallbackImage = await generateStencilFallback(file, payload);
-      const uploadedStencil = await fileUploader.uploadBase64ToCloudinary(
-        fallbackImage.base64,
-        fallbackImage.mimeType,
-      );
+      const file = await ensureWorkingFile(normalizedPayload);
+      const fallbackImage = await generateStencilFallback(file, normalizedPayload);
+      const uploadedStencil = await uploadGeneratedStencil(fallbackImage.base64, fallbackImage.mimeType);
 
       return {
-        originalImage: payload.originalImage,
-        stencilImage: {
-          url: uploadedStencil.url,
-          publicId: uploadedStencil.public_id,
-        },
-        style: normalizedStyle,
-        colorTheme: payload.colorTheme || '',
-        detailLevel: payload.detailLevel ?? 1,
-        brightness: payload.brightness ?? 0.8,
-        contrast: payload.contrast ?? 0.6,
+        originalImage: normalizedPayload.originalImage,
+        stencilImage: uploadedStencil,
+        baseStencilImage: uploadedStencil,
+        style: normalizedPayload.style,
+        styleId: normalizedPayload.styleId,
+        colorTheme: normalizedPayload.colorTheme,
+        colorThemeId: normalizedPayload.colorThemeId,
+        themeRenderMode: normalizedPayload.themeRenderMode,
+        detailLevel: normalizedPayload.detailLevel,
+        brightness: normalizedPayload.brightness,
+        contrast: normalizedPayload.contrast,
         status: 'COMPLETED' as const,
         errorCode: undefined,
         errorMessage: undefined,
@@ -408,13 +633,17 @@ const createGalleryPreview = async (
       const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
 
       return {
-        originalImage: payload.originalImage,
+        originalImage: normalizedPayload.originalImage,
         stencilImage: undefined,
-        style: normalizedStyle,
-        colorTheme: payload.colorTheme || '',
-        detailLevel: payload.detailLevel ?? 1,
-        brightness: payload.brightness ?? 0.8,
-        contrast: payload.contrast ?? 0.6,
+        baseStencilImage: undefined,
+        style: normalizedPayload.style,
+        styleId: normalizedPayload.styleId,
+        colorTheme: normalizedPayload.colorTheme,
+        colorThemeId: normalizedPayload.colorThemeId,
+        themeRenderMode: normalizedPayload.themeRenderMode,
+        detailLevel: normalizedPayload.detailLevel,
+        brightness: normalizedPayload.brightness,
+        contrast: normalizedPayload.contrast,
         status: 'FAILED' as const,
         errorCode,
         errorMessage: `${errorMessage} Local fallback also failed: ${(fallbackError as Error).message}`,
@@ -431,7 +660,18 @@ const getMyAllStencil = async (userId: string) => {
 };
 
 const updateStencil = async (id: string, userId: string, payload: Partial<IAiStencil>) => {
-  const result = await AiStencil.findOneAndUpdate({ _id: id, user: userId }, payload, {
+  const updatePayload: Partial<IAiStencil> = { ...payload };
+
+  if (payload.style || payload.styleId || payload.colorTheme || payload.colorThemeId) {
+    const normalizedPayload = normalizeStencilPayload(payload);
+    updatePayload.style = normalizedPayload.style;
+    updatePayload.styleId = normalizedPayload.styleId;
+    updatePayload.colorTheme = normalizedPayload.colorTheme;
+    updatePayload.colorThemeId = normalizedPayload.colorThemeId;
+    updatePayload.themeRenderMode = normalizedPayload.themeRenderMode;
+  }
+
+  const result = await AiStencil.findOneAndUpdate({ _id: id, user: userId }, updatePayload, {
     new: true,
   });
   return result;
