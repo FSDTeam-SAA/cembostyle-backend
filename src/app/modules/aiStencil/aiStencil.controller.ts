@@ -94,7 +94,21 @@ const getMyAllStencil = catchAsync(async (req: Request, res: Response) => {
 const updateStencil = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.params;
   const userId = req.user.id;
-  const result = await AiStencilService.updateStencil(id as string, userId, req.body);
+  const result = await AiStencilService.updateStencil(id as string, userId, {
+    ...req.body,
+    detailLevel:
+      req.body.detailLevel !== undefined
+        ? parseNumber(req.body.detailLevel, 1)
+        : req.body.detailLevel,
+    brightness:
+      req.body.brightness !== undefined
+        ? parseNumber(req.body.brightness, 0.8)
+        : req.body.brightness,
+    contrast:
+      req.body.contrast !== undefined
+        ? parseNumber(req.body.contrast, 0.6)
+        : req.body.contrast,
+  });
 
   sendResponse(res, {
     statusCode: 200,
