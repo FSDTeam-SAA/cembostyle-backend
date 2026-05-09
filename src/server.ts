@@ -13,6 +13,10 @@ async function main() {
     server = app.listen(config.port, () => {
       console.log(`🚀 Server is running on port ${config.port}`);
     });
+
+    // Keep long-running Gemini image generations alive until they finish.
+    server.requestTimeout = 0;
+    server.timeout = 0;
   } catch (err) {
     console.error('❌ Failed to connect to database:', err);
     process.exit(1); // Exit if DB fails on startup
