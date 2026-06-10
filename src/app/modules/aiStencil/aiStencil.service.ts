@@ -251,6 +251,7 @@ const buildStencilPrompt = (payload: Partial<IAiStencil>) => {
   const themeSpec = COLOR_THEME_SPECS[normalized.colorThemeId];
   const promptParts = [
     styleSpec.prompt,
+    `Expected outcome: ${styleSpec.expectedOutcome}`,
     getDetailDescriptor(normalized.detailLevel),
     `Source brightness preference: ${normalized.brightness.toFixed(2)}.`,
     `Source contrast preference: ${normalized.contrast.toFixed(2)}.`,
@@ -263,6 +264,8 @@ const buildStencilPrompt = (payload: Partial<IAiStencil>) => {
       'Keep the generated result as a neutral monochrome sketch with strong dark lines on a bright background so it can be safely recolored locally with a single ink tint.',
     );
   }
+
+  promptParts.push(`Expected color outcome: ${themeSpec.expectedOutcome}`);
 
   promptParts.push(
     'Return the transformed result as an image only. Do not include a text description.',
