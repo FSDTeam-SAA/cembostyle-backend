@@ -2,9 +2,8 @@ import { Types } from 'mongoose';
 
 export type TStencilStyleId =
   | 'outline'
-  | 'realism_map'
-  | 'detail_guide'
-  | 'halftone_guide';
+  | 'realism'
+  | 'printhatch';
 
 export type TColorThemeId =
   | 'tattoo_black_grey'

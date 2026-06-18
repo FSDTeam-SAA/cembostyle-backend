@@ -8,13 +8,13 @@ import { createHash } from 'crypto';
 import path from 'path';
 import { Readable } from 'stream';
 import { inspect } from 'util';
-import sharp from 'sharp';
 import config from '../../config';
 import { fileUploader } from '../../utils/fileUploader';
 import {
   COLOR_THEME_SPECS,
   DEFAULT_STYLE_ID,
   DEFAULT_THEME_ID,
+  STENCIL_PROMPT_VERSION,
   STENCIL_STYLE_SPECS,
   STYLE_ALIASES,
   THEME_ALIASES,
@@ -28,6 +28,11 @@ import {
   TThemeRenderMode,
 } from './aiStencil.interface';
 import { AiStencil } from './aiStencil.model';
+
+type TGeneratedImage = {
+  base64: string;
+  mimeType: string;
+};
 
 const GEMINI_IMAGE_MODELS = [
   config.gemini.stencil_model,
@@ -46,18 +51,18 @@ const getGenerativeAIClient = () => {
   return new GoogleGenerativeAI(config.gemini.api_key);
 };
 
-const extractGeneratedImage = (response: GenerateContentResponse) => {
+const extractGeneratedImages = (response: GenerateContentResponse): TGeneratedImage[] => {
   const parts = response.candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
-  const imagePart = parts.find((part) => part.inlineData?.data);
+  const imageParts = parts.filter((part) => part.inlineData?.data);
 
-  if (!imagePart?.inlineData?.data) {
+  if (imageParts.length === 0) {
     throw new Error('AI did not return image data.');
   }
 
-  return {
-    base64: imagePart.inlineData.data,
-    mimeType: imagePart.inlineData.mimeType || 'image/png',
-  };
+  return imageParts.map((part) => ({
+    base64: part.inlineData!.data,
+    mimeType: part.inlineData!.mimeType || 'image/png',
+  }));
 };
 
 const shouldTryNextModel = (error: unknown) => {
@@ -173,19 +178,6 @@ const normalizeThemeId = (value?: string): TColorThemeId => {
   return alias || DEFAULT_THEME_ID;
 };
 
-const getDetailDescriptor = (detailLevel?: number) => {
-  switch (detailLevel) {
-    case 0:
-      return 'Keep the result simple and uncluttered.';
-    case 1:
-      return 'Keep a balanced amount of usable detail.';
-    case 2:
-      return 'Keep rich detail while preserving readability.';
-    default:
-      return 'Keep a balanced amount of usable detail.';
-  }
-};
-
 const normalizeNumericPreference = (
   value: unknown,
   fallback: number,
@@ -248,30 +240,8 @@ const normalizeStencilPayload = (payload: Partial<IAiStencil>) => {
 const buildStencilPrompt = (payload: Partial<IAiStencil>) => {
   const normalized = normalizeStencilPayload(payload);
   const styleSpec = STENCIL_STYLE_SPECS[normalized.styleId];
-  const themeSpec = COLOR_THEME_SPECS[normalized.colorThemeId];
-  const promptParts = [
-    styleSpec.prompt,
-    `Expected outcome: ${styleSpec.expectedOutcome}`,
-    getDetailDescriptor(normalized.detailLevel),
-    `Source brightness preference: ${normalized.brightness.toFixed(2)}.`,
-    `Source contrast preference: ${normalized.contrast.toFixed(2)}.`,
-  ];
 
-  if (themeSpec.renderMode === 'gemini' && themeSpec.prompt) {
-    promptParts.push(themeSpec.prompt);
-  } else {
-    promptParts.push(
-      'Keep the generated result as a neutral monochrome sketch with strong dark lines on a bright background so it can be safely recolored locally with a single ink tint.',
-    );
-  }
-
-  promptParts.push(`Expected color outcome: ${themeSpec.expectedOutcome}`);
-
-  promptParts.push(
-    'Return the transformed result as an image only. Do not include a text description.',
-  );
-
-  return promptParts.join(' ');
+  return styleSpec.prompt;
 };
 
 const createMulterFileFromUrl = async (imageUrl: string) => {
@@ -319,15 +289,15 @@ const createSourceFingerprint = (file?: Express.Multer.File, originalImage?: IAi
 const buildGenerationSignature = (
   payload: ReturnType<typeof normalizeStencilPayload> & { user?: IAiStencil['user'] },
 ) => {
+  const stylePromptHash = createHash('sha256')
+    .update(STENCIL_STYLE_SPECS[payload.styleId].prompt)
+    .digest('hex');
   const parts = [
+    STENCIL_PROMPT_VERSION,
+    stylePromptHash,
     String(payload.user || 'anonymous'),
     payload.sourceFingerprint || '',
     payload.styleId,
-    payload.colorThemeId,
-    payload.themeRenderMode,
-    String(payload.detailLevel),
-    payload.brightness.toFixed(2),
-    payload.contrast.toFixed(2),
   ];
 
   return createHash('sha256').update(parts.join('::')).digest('hex');
@@ -352,7 +322,7 @@ const uploadOriginalIfNeeded = async (
   };
 };
 
-const generateStencilImage = async (prompt: string, file: Express.Multer.File) => {
+const generateStencilImages = async (prompt: string, file: Express.Multer.File) => {
   if (GEMINI_IMAGE_MODELS.length === 0) {
     throw new Error('No Gemini image model is configured.');
   }
@@ -385,7 +355,7 @@ const generateStencilImage = async (prompt: string, file: Express.Multer.File) =
       const result = await model.generateContent([{ text: prompt }, imagePart]);
       console.log(`Gemini generation completed in ${Date.now() - startedAt}ms`);
 
-      return extractGeneratedImage(result.response);
+      return extractGeneratedImages(result.response);
     } catch (error) {
       lastError = error;
       console.error(`Gemini model ${modelName} failed: ${formatGeminiError(error)}`);
@@ -402,38 +372,6 @@ const generateStencilImage = async (prompt: string, file: Express.Multer.File) =
   throw lastError ?? new Error('Gemini image generation failed.');
 };
 
-const generateStencilFallback = async (
-  file: Express.Multer.File,
-  payload: Partial<IAiStencil>,
-) => {
-  const detailLevel = payload.detailLevel ?? 1;
-  const contrast = payload.contrast ?? 0.6;
-  const brightness = payload.brightness ?? 0.8;
-  const threshold = detailLevel >= 2 ? 172 : 188;
-  const alpha = 1.2 + contrast * 0.8;
-  const beta = Math.round((brightness - 0.5) * 42);
-
-  const stencilBuffer = await sharp(file.buffer)
-    .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
-    .greyscale()
-    .normalise()
-    .linear(alpha, beta)
-    .convolve({
-      width: 3,
-      height: 3,
-      kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
-    })
-    .negate()
-    .threshold(threshold)
-    .png()
-    .toBuffer();
-
-  return {
-    base64: stencilBuffer.toString('base64'),
-    mimeType: 'image/png',
-  };
-};
-
 const uploadGeneratedStencil = async (base64: string, mimeType: string) => {
   const startedAt = Date.now();
   console.log('3. Uploading stencil to Cloudinary...');
@@ -443,6 +381,36 @@ const uploadGeneratedStencil = async (base64: string, mimeType: string) => {
   return {
     url: uploadedStencil.url,
     publicId: uploadedStencil.public_id,
+  };
+};
+
+const uploadGeneratedStencilSet = async (
+  generatedImages: TGeneratedImage[],
+  expectedImageCount: number,
+) => {
+  const cleanImage = generatedImages[0];
+  const overlayImage = expectedImageCount > 1 ? generatedImages[1] || cleanImage : cleanImage;
+
+  if (!cleanImage || !overlayImage) {
+    throw new Error('AI did not return usable image data.');
+  }
+
+  if (cleanImage === overlayImage) {
+    const uploadedImage = await uploadGeneratedStencil(cleanImage.base64, cleanImage.mimeType);
+    return {
+      baseStencilImage: uploadedImage,
+      stencilImage: uploadedImage,
+    };
+  }
+
+  const [baseStencilImage, stencilImage] = await Promise.all([
+    uploadGeneratedStencil(cleanImage.base64, cleanImage.mimeType),
+    uploadGeneratedStencil(overlayImage.base64, overlayImage.mimeType),
+  ]);
+
+  return {
+    baseStencilImage,
+    stencilImage,
   };
 };
 
@@ -473,8 +441,9 @@ const finalizeCompletedPayload = (
     generationSignature: string;
   },
   generatedImageRef: IAiImageRef,
+  baseImageRef: IAiImageRef = generatedImageRef,
 ) => {
-  payload.baseStencilImage = generatedImageRef;
+  payload.baseStencilImage = baseImageRef;
   payload.stencilImage = generatedImageRef;
   payload.isSaved = payload.isSaved ?? false;
   payload.status = 'COMPLETED';
@@ -521,61 +490,31 @@ const createStencil = async (payload: IAiStencil, file?: Express.Multer.File) =>
     }
 
     const prompt = buildStencilPrompt(normalizedPayload);
-    const generatedImage = await generateStencilImage(prompt, workingFile);
-    const uploadedStencil = await uploadGeneratedStencil(generatedImage.base64, generatedImage.mimeType);
+    const generatedImages = await generateStencilImages(prompt, workingFile);
+    const uploadedStencils = await uploadGeneratedStencilSet(
+      generatedImages,
+      STENCIL_STYLE_SPECS[normalizedPayload.styleId].expectedImageCount,
+    );
 
     finalizeCompletedPayload(
       normalizedPayload as ReturnType<typeof normalizeStencilPayload> & {
         sourceFingerprint: string;
         generationSignature: string;
       },
-      uploadedStencil,
+      uploadedStencils.stencilImage,
+      uploadedStencils.baseStencilImage,
     );
 
     return await AiStencil.create(normalizedPayload);
   } catch (error: unknown) {
-    try {
-      console.error(`Gemini generation error details: ${formatGeminiError(error)}`);
-      console.warn('Gemini generation failed, falling back to local stencil processing.');
-
-      if (!normalizedPayload.originalImage) {
-        const originalImage = await uploadOriginalIfNeeded(normalizedPayload, file);
-        if (originalImage) {
-          normalizedPayload.originalImage = originalImage;
-        }
-      }
-      const workingFile = await ensureWorkingFile(normalizedPayload, file);
-      normalizedPayload.sourceFingerprint =
-        normalizedPayload.sourceFingerprint ||
-        createSourceFingerprint(workingFile, normalizedPayload.originalImage);
-      normalizedPayload.generationSignature =
-        normalizedPayload.generationSignature ||
-        buildGenerationSignature({
-          ...normalizedPayload,
-          sourceFingerprint: normalizedPayload.sourceFingerprint,
-        });
-
-      const fallbackImage = await generateStencilFallback(workingFile, normalizedPayload);
-      const uploadedStencil = await uploadGeneratedStencil(fallbackImage.base64, fallbackImage.mimeType);
-
-      finalizeCompletedPayload(
-        normalizedPayload as ReturnType<typeof normalizeStencilPayload> & {
-          sourceFingerprint: string;
-          generationSignature: string;
-        },
-        uploadedStencil,
-      );
-
-      return await AiStencil.create(normalizedPayload);
-    } catch (fallbackError: unknown) {
-      const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
-      console.error('Service Error:', errorMessage, fallbackError);
-      normalizedPayload.status = 'FAILED';
-      normalizedPayload.isSaved = normalizedPayload.isSaved ?? false;
-      normalizedPayload.errorCode = errorCode;
-      normalizedPayload.errorMessage = errorMessage;
-      return await AiStencil.create(normalizedPayload);
-    }
+    const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
+    console.error(`Gemini generation error details: ${formatGeminiError(error)}`);
+    console.error('Service Error:', errorMessage);
+    normalizedPayload.status = 'FAILED';
+    normalizedPayload.isSaved = normalizedPayload.isSaved ?? false;
+    normalizedPayload.errorCode = errorCode;
+    normalizedPayload.errorMessage = errorMessage;
+    return await AiStencil.create(normalizedPayload);
   }
 };
 
@@ -589,13 +528,16 @@ const createGalleryPreview = async (
   try {
     const file = await ensureWorkingFile(normalizedPayload);
     const prompt = buildStencilPrompt(normalizedPayload);
-    const generatedImage = await generateStencilImage(prompt, file);
-    const uploadedStencil = await uploadGeneratedStencil(generatedImage.base64, generatedImage.mimeType);
+    const generatedImages = await generateStencilImages(prompt, file);
+    const uploadedStencils = await uploadGeneratedStencilSet(
+      generatedImages,
+      STENCIL_STYLE_SPECS[normalizedPayload.styleId].expectedImageCount,
+    );
 
     return {
       originalImage: normalizedPayload.originalImage,
-      stencilImage: uploadedStencil,
-      baseStencilImage: uploadedStencil,
+      stencilImage: uploadedStencils.stencilImage,
+      baseStencilImage: uploadedStencils.baseStencilImage,
       style: normalizedPayload.style,
       styleId: normalizedPayload.styleId,
       colorTheme: normalizedPayload.colorTheme,
@@ -609,49 +551,25 @@ const createGalleryPreview = async (
       errorMessage: undefined,
     };
   } catch (error: unknown) {
-    try {
-      console.error(`Gemini gallery preview error details: ${formatGeminiError(error)}`);
-      console.warn('Gemini gallery preview failed, using local stencil fallback.');
-      const file = await ensureWorkingFile(normalizedPayload);
-      const fallbackImage = await generateStencilFallback(file, normalizedPayload);
-      const uploadedStencil = await uploadGeneratedStencil(fallbackImage.base64, fallbackImage.mimeType);
+    const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
+    console.error(`Gemini gallery preview error details: ${formatGeminiError(error)}`);
 
-      return {
-        originalImage: normalizedPayload.originalImage,
-        stencilImage: uploadedStencil,
-        baseStencilImage: uploadedStencil,
-        style: normalizedPayload.style,
-        styleId: normalizedPayload.styleId,
-        colorTheme: normalizedPayload.colorTheme,
-        colorThemeId: normalizedPayload.colorThemeId,
-        themeRenderMode: normalizedPayload.themeRenderMode,
-        detailLevel: normalizedPayload.detailLevel,
-        brightness: normalizedPayload.brightness,
-        contrast: normalizedPayload.contrast,
-        status: 'COMPLETED' as const,
-        errorCode: undefined,
-        errorMessage: undefined,
-      };
-    } catch (fallbackError: unknown) {
-      const { errorCode, errorMessage } = classifyAiError(error, GEMINI_IMAGE_MODELS);
-
-      return {
-        originalImage: normalizedPayload.originalImage,
-        stencilImage: undefined,
-        baseStencilImage: undefined,
-        style: normalizedPayload.style,
-        styleId: normalizedPayload.styleId,
-        colorTheme: normalizedPayload.colorTheme,
-        colorThemeId: normalizedPayload.colorThemeId,
-        themeRenderMode: normalizedPayload.themeRenderMode,
-        detailLevel: normalizedPayload.detailLevel,
-        brightness: normalizedPayload.brightness,
-        contrast: normalizedPayload.contrast,
-        status: 'FAILED' as const,
-        errorCode,
-        errorMessage: `${errorMessage} Local fallback also failed: ${(fallbackError as Error).message}`,
-      };
-    }
+    return {
+      originalImage: normalizedPayload.originalImage,
+      stencilImage: undefined,
+      baseStencilImage: undefined,
+      style: normalizedPayload.style,
+      styleId: normalizedPayload.styleId,
+      colorTheme: normalizedPayload.colorTheme,
+      colorThemeId: normalizedPayload.colorThemeId,
+      themeRenderMode: normalizedPayload.themeRenderMode,
+      detailLevel: normalizedPayload.detailLevel,
+      brightness: normalizedPayload.brightness,
+      contrast: normalizedPayload.contrast,
+      status: 'FAILED' as const,
+      errorCode,
+      errorMessage,
+    };
   }
 };
 
