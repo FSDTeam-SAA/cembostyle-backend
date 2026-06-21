@@ -392,7 +392,7 @@ const normalizeGeneratedLineworkImage = async (
 ): Promise<TGeneratedImage> => {
   const lineColor =
     styleId === 'realism'
-      ? { red: 204, green: 0, blue: 0 }
+      ? { red: 220, green: 0, blue: 0 }
       : styleId === 'outline' || styleId === 'printhatch'
         ? { red: 0, green: 0, blue: 0 }
         : null;
@@ -400,7 +400,7 @@ const normalizeGeneratedLineworkImage = async (
     styleId === 'outline'
       ? { minStrength: 0.1, range: 210, maxStrength: 0.92 }
       : styleId === 'realism'
-        ? { minStrength: 0.04, range: 285, maxStrength: 0.78 }
+        ? { minStrength: 0.06, range: 245, maxStrength: 0.86 }
         : { minStrength: 0.05, range: 265, maxStrength: 0.82 };
 
   if (!lineColor) {
@@ -479,8 +479,8 @@ const createTransparentStencilLayer = async (stencilBuffer: Buffer) => {
       continue;
     }
 
-    const opacity = Math.round(Math.min(210, Math.max(70, 245 - average)));
-    data[i] = 204;
+    const opacity = Math.round(Math.min(224, Math.max(82, 255 - average)));
+    data[i] = 220;
     data[i + 1] = 0;
     data[i + 2] = 0;
     data[i + 3] = opacity;
