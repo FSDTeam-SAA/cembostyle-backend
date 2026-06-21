@@ -6,6 +6,7 @@ import {
 } from '@google/generative-ai';
 import { createHash } from 'crypto';
 import path from 'path';
+import sharp from 'sharp';
 import { Readable } from 'stream';
 import { inspect } from 'util';
 import config from '../../config';
@@ -36,8 +37,9 @@ type TGeneratedImage = {
 
 const GEMINI_IMAGE_MODELS = [
   config.gemini.stencil_model,
+  'gemini-3.1-flash-image',
+  'gemini-3-pro-image',
   'gemini-2.5-flash-image',
-  'gemini-3.1-flash-image-preview',
   'gemini-2.0-flash-exp-image-generation',
 ].filter(
   (model, index, models): model is string => Boolean(model) && models.indexOf(model) === index,
@@ -384,16 +386,96 @@ const uploadGeneratedStencil = async (base64: string, mimeType: string) => {
   };
 };
 
+const createTransparentStencilLayer = async (stencilBuffer: Buffer) => {
+  const { data, info } = await sharp(stencilBuffer)
+    .flatten({ background: '#ffffff' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  for (let i = 0; i < data.length; i += 4) {
+    const red = data[i] ?? 255;
+    const green = data[i + 1] ?? 255;
+    const blue = data[i + 2] ?? 255;
+    const average = (red + green + blue) / 3;
+    const isBackground = red > 238 && green > 238 && blue > 238;
+
+    if (isBackground) {
+      data[i + 3] = 0;
+      continue;
+    }
+
+    const opacity = Math.round(Math.min(230, Math.max(90, 255 - average + 95)));
+    data[i] = 204;
+    data[i + 1] = 0;
+    data[i + 2] = 0;
+    data[i + 3] = opacity;
+  }
+
+  return sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: info.channels,
+    },
+  })
+    .png()
+    .toBuffer();
+};
+
+const createRealismOverlayImage = async (
+  cleanStencilImage: TGeneratedImage,
+  sourceFile: Express.Multer.File,
+): Promise<TGeneratedImage> => {
+  const stencilBuffer = Buffer.from(cleanStencilImage.base64, 'base64');
+  const metadata = await sharp(stencilBuffer).metadata();
+  const width = metadata.width || 1024;
+  const height = metadata.height || 1024;
+
+  const originalImage = await sharp(sourceFile.buffer)
+    .rotate()
+    .resize(width, height, {
+      fit: 'cover',
+      position: 'center',
+    })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+
+  const stencilLayer = await createTransparentStencilLayer(stencilBuffer);
+  const overlay = await sharp(originalImage)
+    .composite([
+      {
+        input: stencilLayer,
+        blend: 'over',
+      },
+    ])
+    .jpeg({ quality: 94 })
+    .toBuffer();
+
+  return {
+    base64: overlay.toString('base64'),
+    mimeType: 'image/jpeg',
+  };
+};
+
 const uploadGeneratedStencilSet = async (
   generatedImages: TGeneratedImage[],
   expectedImageCount: number,
+  styleId?: TStencilStyleId,
+  sourceFile?: Express.Multer.File,
 ) => {
   const cleanImage = generatedImages[0];
-  const overlayImage = expectedImageCount > 1 ? generatedImages[1] || cleanImage : cleanImage;
 
-  if (!cleanImage || !overlayImage) {
+  if (!cleanImage) {
     throw new Error('AI did not return usable image data.');
   }
+
+  const overlayImage =
+    styleId === 'realism' && sourceFile
+      ? await createRealismOverlayImage(cleanImage, sourceFile)
+      : expectedImageCount > 1
+        ? generatedImages[1] || cleanImage
+        : cleanImage;
 
   if (cleanImage === overlayImage) {
     const uploadedImage = await uploadGeneratedStencil(cleanImage.base64, cleanImage.mimeType);
@@ -494,6 +576,8 @@ const createStencil = async (payload: IAiStencil, file?: Express.Multer.File) =>
     const uploadedStencils = await uploadGeneratedStencilSet(
       generatedImages,
       STENCIL_STYLE_SPECS[normalizedPayload.styleId].expectedImageCount,
+      normalizedPayload.styleId,
+      workingFile,
     );
 
     finalizeCompletedPayload(
@@ -532,6 +616,8 @@ const createGalleryPreview = async (
     const uploadedStencils = await uploadGeneratedStencilSet(
       generatedImages,
       STENCIL_STYLE_SPECS[normalizedPayload.styleId].expectedImageCount,
+      normalizedPayload.styleId,
+      file,
     );
 
     return {

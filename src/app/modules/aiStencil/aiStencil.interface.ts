@@ -5,14 +5,7 @@ export type TStencilStyleId =
   | 'realism'
   | 'printhatch';
 
-export type TColorThemeId =
-  | 'tattoo_black_grey'
-  | 'stencil_violet'
-  | 'stencil_cobalt_blue'
-  | 'red_black_contrast'
-  | 'deep_blue_ink'
-  | 'sepia_draft'
-  | 'super_contrast';
+export type TColorThemeId = 'black' | 'red' | 'blue' | 'green';
 
 export type TThemeRenderMode = 'local_tint' | 'gemini';
 

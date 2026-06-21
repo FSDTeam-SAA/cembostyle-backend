@@ -1,4 +1,10 @@
-export type TCategory = 'Outline' | 'Realism Map' | 'Detail Guide' | 'Halftone Guide';
+export type TCategory =
+  | 'Outline'
+  | 'Realism'
+  | 'PrintHatch'
+  | 'Realism Map'
+  | 'Detail Guide'
+  | 'Halftone Guide';
 
 export interface IGalleryImage {
   category: TCategory;
