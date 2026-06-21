@@ -386,6 +386,80 @@ const uploadGeneratedStencil = async (base64: string, mimeType: string) => {
   };
 };
 
+const normalizeGeneratedLineworkImage = async (
+  image: TGeneratedImage,
+  styleId?: TStencilStyleId,
+): Promise<TGeneratedImage> => {
+  const lineColor =
+    styleId === 'realism'
+      ? { red: 204, green: 0, blue: 0 }
+      : styleId === 'outline' || styleId === 'printhatch'
+        ? { red: 0, green: 0, blue: 0 }
+        : null;
+  const normalization =
+    styleId === 'outline'
+      ? { minStrength: 0.1, range: 210, maxStrength: 0.92 }
+      : styleId === 'realism'
+        ? { minStrength: 0.04, range: 285, maxStrength: 0.78 }
+        : { minStrength: 0.05, range: 265, maxStrength: 0.82 };
+
+  if (!lineColor) {
+    return image;
+  }
+
+  const imageBuffer = Buffer.from(image.base64, 'base64');
+  const { data, info } = await sharp(imageBuffer)
+    .flatten({ background: '#ffffff' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  if (!info.width || !info.height) {
+    return image;
+  }
+
+  for (let i = 0; i < data.length; i += 4) {
+    const red = data[i] ?? 255;
+    const green = data[i + 1] ?? 255;
+    const blue = data[i + 2] ?? 255;
+    const alpha = data[i + 3] ?? 255;
+    const isBackground = alpha < 16 || (red > 246 && green > 246 && blue > 246);
+
+    if (isBackground) {
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = 255;
+      continue;
+    }
+
+    const brightness = (red + green + blue) / 3;
+    const strength = Math.min(
+      normalization.maxStrength,
+      Math.max(normalization.minStrength, (250 - brightness) / normalization.range),
+    );
+    data[i] = Math.round(255 - (255 - lineColor.red) * strength);
+    data[i + 1] = Math.round(255 - (255 - lineColor.green) * strength);
+    data[i + 2] = Math.round(255 - (255 - lineColor.blue) * strength);
+    data[i + 3] = 255;
+  }
+
+  const normalizedBuffer = await sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: 4,
+    },
+  })
+    .png()
+    .toBuffer();
+
+  return {
+    base64: normalizedBuffer.toString('base64'),
+    mimeType: 'image/png',
+  };
+};
+
 const createTransparentStencilLayer = async (stencilBuffer: Buffer) => {
   const { data, info } = await sharp(stencilBuffer)
     .flatten({ background: '#ffffff' })
@@ -464,12 +538,13 @@ const uploadGeneratedStencilSet = async (
   styleId?: TStencilStyleId,
   sourceFile?: Express.Multer.File,
 ) => {
-  const cleanImage = generatedImages[0];
+  const rawCleanImage = generatedImages[0];
 
-  if (!cleanImage) {
+  if (!rawCleanImage) {
     throw new Error('AI did not return usable image data.');
   }
 
+  const cleanImage = await normalizeGeneratedLineworkImage(rawCleanImage, styleId);
   const overlayImage =
     styleId === 'realism' && sourceFile
       ? await createRealismOverlayImage(cleanImage, sourceFile)
