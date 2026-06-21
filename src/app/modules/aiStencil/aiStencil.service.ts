@@ -479,7 +479,7 @@ const createTransparentStencilLayer = async (stencilBuffer: Buffer) => {
       continue;
     }
 
-    const opacity = Math.round(Math.min(230, Math.max(90, 255 - average + 95)));
+    const opacity = Math.round(Math.min(210, Math.max(70, 245 - average)));
     data[i] = 204;
     data[i + 1] = 0;
     data[i + 2] = 0;
