@@ -25,33 +25,55 @@ export const STENCIL_STYLE_SPECS: Record<TStencilStyleId, StyleSpec> = {
     id: 'outline',
     label: 'Outline',
     subtitle: 'Clean tattoo transfer outline',
-    prompt: `Convert the uploaded image into a clean tattoo-style outline stencil.
-Generate ONLY the external and essential internal contour lines of the subject.
+    prompt: `Convert the uploaded image into a clean, highly detailed tattoo-style outline stencil.
+Trace the ENTIRE scene from the source photo as line art — the main subject AND everything
+around it (sky, clouds, water, ground, horizon, environment). Do NOT isolate the subject
+on a blank white canvas: the whole photo must be re-drawn as outline art, edge to edge.
 
 Rules:
-- pure black outlines on clean white background
+- pure black outline lines only on a clean white background
+- single, consistent line weight for a clean tattoo-transfer look
 - no shading
 - no gradients
 - no grey tones
-- no textures
+- no solid tonal fills
 - no shadows
 - no solid black fill areas
 - no sketch effect
 - no artistic reinterpretation
 - preserve original proportions and structure exactly
+
+DETAIL PRIORITY (do NOT drop these — outline every one that is visible in the source):
+- every distinct panel, seam, and section division on the subject
+- every rope, cable, wire, strap, or thin structural line
+- every mechanical part, joint, fitting, and hardware edge
+- every fold, crease, and edge in fabric, sails, or clothing
+- important internal separations (facial features, patterns, text, logos, structural lines)
+- keep internal lines individually readable — do not merge adjacent details into one blob
+
+BACKGROUND AND ENVIRONMENT — REQUIRED, do not leave blank or white:
+- clouds: draw their silhouette edges and internal lobes/billows as closed contour lines
+- sky: draw layering/formation breaks between cloud masses and open sky as thin contour lines
+- water: draw wave crests, ripples, and surface movement as flowing directional contour lines
+- horizon line and any distant landscape/skyline shapes as clean contour lines
+- any other environmental elements (terrain, buildings, foliage, objects) as outline contours
+- represent tone/texture using line density and line placement only — never shading or fill
+
+WHAT MAY BE OMITTED (only these, never real structure or background):
+- photographic noise, sensor grain, blur, and compression artifacts
+- reflections and lens glare that are not physical edges
+
 - keep outlines smooth, sharp, and readable
-- simplify unnecessary micro-details and noise
 - for text: convert letters into clean vector-like outline contours only
-- for images: keep only major contour lines and important internal separations
-- output must look like a professional tattoo transfer stencil
-- centered composition
+- output must look like a professional, detail-rich, full-scene tattoo transfer stencil
+- full-bleed composition matching the source photo's framing
 - high contrast
 - crisp thin black lines
 
 Important:
 If the image contains typography or logos, create only the exact outer and inner outline paths of the letters without fills or shading.`,
     expectedOutcome:
-      'A centered pure black outline stencil on a clean white background with no shading, fills, texture, gradients, or reinterpretation.',
+      'A pure black outline stencil covering the full scene from edge to edge — subject plus background (clouds, water, environment) all rendered as line art — with no shading, fills, gradients, or reinterpretation.',
     expectedImageCount: 1,
   },
   realism: {
@@ -59,8 +81,12 @@ If the image contains typography or logos, create only the exact outer and inner
     label: 'Realism',
     subtitle: 'Technical red-line stencil and overlay',
     prompt: `Convert the uploaded photograph into a professional high-fidelity technical tattoo stencil.
-Generate ONE clean technical stencil on a pure white background.
-The backend will create the overlay preview from this exact stencil, so do not include the original photograph, split panels, previews, or before/after layouts in the generated image.
+Generate ONE clean technical stencil on a pure white canvas, tracing the FULL photo edge to
+edge — the main subject AND everything around it (sky, clouds, water, ground, horizon,
+environment). Do NOT isolate the subject alone: the whole scene must be re-drawn as stencil
+linework.
+The backend will create the overlay preview from this exact stencil, so do not include the
+original photograph, split panels, previews, or before/after layouts in the generated image.
 
 GENERAL STYLE:
 - realistic tattoo stencil
@@ -94,11 +120,18 @@ WHAT MUST BE INCLUDED:
 - important wrinkles and skin folds
 - important texture separations useful for tattooing
 
-WHAT MUST BE EXCLUDED OR REDUCED:
-- background elements
+BACKGROUND AND ENVIRONMENT — REQUIRED, do not leave blank or white:
+- clouds: their silhouette edges and internal lobes/billows as closed contour lines, with
+  tonal mapping (continuous vs. dashed red line) showing their light/shadow structure
+- sky: layering/formation breaks between cloud masses as thin contour lines
+- water: wave crests, ripples, and surface movement as flowing directional red lines with
+  tonal mapping for light and dark water areas
+- horizon line and any distant landscape/skyline shapes as clean contour lines
+- any other environmental elements (terrain, buildings, foliage, objects) as tonal-mapped
+  stencil linework, same rules as the main subject
+
+WHAT MUST BE EXCLUDED OR REDUCED (never real structure or background):
 - blur
-- atmosphere
-- smoke
 - photographic grain
 - random micro texture
 - unnecessary pores
@@ -106,7 +139,8 @@ WHAT MUST BE EXCLUDED OR REDUCED:
 - abstract artistic effects
 
 TONAL MAPPING SYSTEM:
-Create tonal separation guides using the SAME red stencil line.
+Create tonal separation guides using the SAME red stencil line, across the ENTIRE image
+including background and environment, not just the subject.
 The stencil must define:
 - solid black areas
 - dark tone areas
@@ -119,20 +153,20 @@ Do NOT write labels or text indicating tones.
 Only outline the tonal regions naturally.
 
 OUTPUT 1 - CLEAN STENCIL:
-- pure white background
+- pure white canvas behind the linework (not a blank/empty scene — the full scene is drawn as linework)
 - stencil only
 - no grayscale
 - no photo texture
 - no shadows
 - no realistic rendering
-- isolated clean technical stencil
+- full-scene technical stencil, subject and background both fully traced
 
 FINAL RESULT:
 Generate only the clean red-line tattoo stencil.
 Do not include the original photo in the output.
 Do not create a collage or side-by-side comparison.`,
     expectedOutcome:
-      'Two matched realism outputs: a clean red-line technical stencil on white and the same red stencil overlaid on the original photo.',
+      'Two matched realism outputs: a clean red-line technical stencil on white covering the full scene (subject plus background/environment, both tonally mapped), and the same red stencil overlaid on the original photo.',
     expectedImageCount: 2,
   },
   printhatch: {
