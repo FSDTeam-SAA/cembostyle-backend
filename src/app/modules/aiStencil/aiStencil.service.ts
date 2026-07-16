@@ -407,6 +407,11 @@ const normalizeGeneratedLineworkImage = async (
     return image;
   }
 
+  // Outline/PrintHatch keep more of the near-white range as real tonal detail
+  // (clouds, hatching, wave texture) instead of wiping it to flat white; Realism
+  // keeps the original cutoff since its clean layer feeds createTransparentStencilLayer.
+  const backgroundWhiteThreshold = styleId === 'realism' ? 246 : 253;
+
   const imageBuffer = Buffer.from(image.base64, 'base64');
   const { data, info } = await sharp(imageBuffer)
     .flatten({ background: '#ffffff' })
@@ -423,7 +428,11 @@ const normalizeGeneratedLineworkImage = async (
     const green = data[i + 1] ?? 255;
     const blue = data[i + 2] ?? 255;
     const alpha = data[i + 3] ?? 255;
-    const isBackground = alpha < 16 || (red > 246 && green > 246 && blue > 246);
+    const isBackground =
+      alpha < 16 ||
+      (red > backgroundWhiteThreshold &&
+        green > backgroundWhiteThreshold &&
+        blue > backgroundWhiteThreshold);
 
     if (isBackground) {
       data[i] = 255;
